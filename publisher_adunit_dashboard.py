@@ -9,19 +9,6 @@ from gspread_dataframe import get_as_dataframe
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
-# Load client config from secrets directly (no json.loads)
-# Convert Streamlit secrets into the correct dict for Flow
-client_config = {
-    "web": {
-        "client_id": st.secrets.GOOGLE_CLIENT_SECRETS.client_id,
-        "client_secret": st.secrets.GOOGLE_CLIENT_SECRETS.client_secret,
-        "auth_uri": st.secrets.GOOGLE_CLIENT_SECRETS.auth_uri,
-        "token_uri": st.secrets.GOOGLE_CLIENT_SECRETS.token_uri,
-        "redirect_uris": st.secrets.GOOGLE_CLIENT_SECRETS.redirect_uris,
-        "javascript_origins": st.secrets.GOOGLE_CLIENT_SECRETS.javascript_origins
-    }
-}
-
 # Page config
 st.set_page_config(
     page_title="Publisher AdUnit Validation Dashboard",
@@ -125,6 +112,7 @@ def generate_batch_list(batch_prefix, start, end):
 def authenticate_gsheets():
     if 'creds' not in st.session_state:
         if 'auth_flow' not in st.session_state:
+            # Use the secrets directly - they're already in the correct format
             st.session_state['auth_flow'] = Flow.from_client_config(
                 st.secrets["GOOGLE_CLIENT_SECRETS"],
                 scopes=SCOPES,
@@ -135,12 +123,12 @@ def authenticate_gsheets():
             return None
 
         # Check if Google redirected with code
-        query_params = st.experimental_get_query_params()
+        query_params = st.query_params
         if "code" in query_params:
-            code = query_params["code"][0]
+            code = query_params["code"]
             st.session_state['auth_flow'].fetch_token(code=code)
             st.session_state['creds'] = st.session_state['auth_flow'].credentials
-            st.experimental_set_query_params()  # Clear query params after using
+            st.query_params.clear()  # Clear query params after using
         else:
             return None
 
