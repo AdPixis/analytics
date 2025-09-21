@@ -15,6 +15,9 @@ import pickle
 import json
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+# Load Google OAuth client secrets from Streamlit secrets
+client_secrets_json = st.secrets["GOOGLE_CLIENT_SECRETS"]
+client_config = json.loads(client_secrets_json)
 
 # Page configuration
 st.set_page_config(
