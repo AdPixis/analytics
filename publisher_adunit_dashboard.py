@@ -112,17 +112,39 @@ def load_sheet(gc, url, tab, header=0, columns=None):
     try:
         st.write(f"🔗 Attempting to open sheet URL: {url}")
         
+        # Clean the URL - remove fragment identifiers that might cause issues
+        clean_url = url.split('#')[0].split('?')[0]
+        if '/edit' not in clean_url:
+            clean_url += '/edit'
+        
+        st.write(f"🧹 Cleaned URL: {clean_url}")
+        
         # Try to open the spreadsheet first
         try:
-            spreadsheet = gc.open_by_url(url)
+            spreadsheet = gc.open_by_url(clean_url)
             st.write(f"✅ Successfully opened spreadsheet: {spreadsheet.title}")
         except Exception as e:
             st.error(f"❌ Failed to open spreadsheet: {e}")
-            st.error("This might be a permissions issue. Make sure:")
-            st.error("1. The sheet is shared with your Google account")
-            st.error("2. You have at least 'Viewer' access")
-            st.error("3. The URL is correct and accessible")
-            return pd.DataFrame()
+            
+            # Try alternative approach - by spreadsheet ID
+            try:
+                # Extract spreadsheet ID from URL
+                import re
+                match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', url)
+                if match:
+                    sheet_id = match.group(1)
+                    st.write(f"🆔 Trying with spreadsheet ID: {sheet_id}")
+                    spreadsheet = gc.open_by_key(sheet_id)
+                    st.write(f"✅ Successfully opened spreadsheet by ID: {spreadsheet.title}")
+                else:
+                    raise Exception("Could not extract spreadsheet ID from URL")
+            except Exception as e2:
+                st.error(f"❌ Also failed with spreadsheet ID: {e2}")
+                st.error("Possible solutions:")
+                st.error("1. Make sure you're logged in with the correct Google account")
+                st.error("2. Try logging out and back in to the app")
+                st.error("3. Check if the sheet URL is correct")
+                return pd.DataFrame()
         
         # List all available worksheets
         try:
@@ -392,6 +414,21 @@ def main():
     if not gc:
         st.warning("Please authenticate with Google first.")
         return
+    
+    # Add account verification
+    try:
+        # Try to get user info to verify which account is authenticated
+        st.write("🔍 **Authentication Check:**")
+        # List a few sheets to test access
+        sheets = gc.list_spreadsheet_files()[:3]  # Just first 3 to avoid overload
+        st.write(f"✅ Authenticated successfully. Can access {len(sheets)} spreadsheets.")
+        if sheets:
+            st.write("Sample accessible sheets:")
+            for sheet in sheets[:3]:
+                st.write(f"- {sheet.get('name', 'Unknown')}")
+    except Exception as e:
+        st.error(f"Authentication test failed: {e}")
+        st.error("This suggests the authentication or permissions setup needs attention.")
 
     # Configuration Section
     if not st.session_state.config_confirmed:
