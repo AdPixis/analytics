@@ -131,7 +131,37 @@ def authenticate_gsheets():
     if 'creds' not in st.session_state:
         # Check if Google redirected with code first
         query_params = st.query_params
-        if "code" in query_params and 'auth_flow' in st.session_state:
+        if "code" in query_params:
+            # We have a code, but need to ensure we have auth_flow
+            if 'auth_flow' not in st.session_state:
+                # Recreate the auth flow (it was lost when Google redirected back)
+                try:
+                    secrets_config = st.secrets["GOOGLE_CLIENT_SECRETS"]
+                    
+                    if isinstance(secrets_config, str):
+                        client_config = json.loads(secrets_config)
+                    else:
+                        client_config = {
+                            "web": {
+                                "client_id": secrets_config.client_id,
+                                "client_secret": secrets_config.client_secret,
+                                "auth_uri": secrets_config.auth_uri,
+                                "token_uri": secrets_config.token_uri,
+                                "auth_provider_x509_cert_url": secrets_config.auth_provider_x509_cert_url,
+                                "redirect_uris": [redirect_uri]
+                            }
+                        }
+                    
+                    st.session_state['auth_flow'] = Flow.from_client_config(
+                        client_config,
+                        scopes=SCOPES,
+                        redirect_uri=redirect_uri
+                    )
+                except Exception as e:
+                    st.error(f"Error recreating auth flow: {e}")
+                    return None
+            
+            # Now exchange the code for credentials
             try:
                 code = query_params["code"]
                 st.write(f"Debug - Got auth code: {code[:10]}...")
@@ -142,6 +172,8 @@ def authenticate_gsheets():
                 st.rerun()  # Reload the app to show authenticated state
             except Exception as e:
                 st.error(f"Error during token exchange: {e}")
+                # Clear query params so user can try again
+                st.query_params.clear()
                 return None
         
         if 'auth_flow' not in st.session_state:
