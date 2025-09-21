@@ -1,16 +1,16 @@
-import os
 import streamlit as st
 import pandas as pd
-from gspread_dataframe import get_as_dataframe
 import numpy as np
 import re
 from datetime import datetime
+
+# Google Sheets / OAuth
 import gspread
-from google.auth.transport.requests import Request
 from gspread_dataframe import get_as_dataframe
 from google_auth_oauthlib.flow import Flow
-from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
+
+# For storing credentials temporarily (optional)
 import pickle
 import json
 
@@ -123,24 +123,39 @@ def excel_columns(start: str, end: str):
 
 @st.cache_resource
 def authenticate_gsheets():
-    """
-    Authenticate with Google Sheets using a pre-generated token.pickle.
-    Returns a gspread client.
-    """
-    creds = None
+    if 'creds' not in st.session_state:
+        # Load client secrets from Streamlit secrets or JSON string
+        # Example: st.secrets["GOOGLE_CLIENT_SECRETS"] = '{"installed":{...}}'
+        client_secrets_json = st.secrets.get("GOOGLE_CLIENT_SECRETS")
+        if not client_secrets_json:
+            st.error("⚠️ Google client secrets not found in Streamlit secrets.")
+            return None
 
-    # Load token if it exists
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token_file:
-            creds = pickle.load(token_file)
+        client_config = json.loads(client_secrets_json)
 
-    # If credentials are expired, refresh them
-    if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
+        flow = Flow.from_client_config(
+            client_config,
+            scopes=SCOPES,
+            redirect_uri='urn:ietf:wg:oauth:2.0:oob'
+        )
 
-    # If creds is None, authentication failed
-    if not creds:
-        return None
+        # Generate auth URL
+        auth_url, _ = flow.authorization_url(prompt='consent')
+
+        st.write("### Sign in with Google to access your Sheets")
+        st.write(f"[Click here to sign in]({auth_url})")
+
+        # Ask user to paste the code after signing in
+        code = st.text_input("Enter the code you received after signing in:")
+
+        if code:
+            flow.fetch_token(code=code)
+            creds = flow.credentials
+            st.session_state['creds'] = creds
+        else:
+            return None
+    else:
+        creds = st.session_state['creds']
 
     # Authorize gspread client
     gc = gspread.authorize(creds)
@@ -376,13 +391,21 @@ def main():
         st.markdown("---")
         
         # Authentication check
+        st.title("Google Sheets Loader with Sign-In")
         gc = authenticate_gsheets()
-        if not gc:
-            st.error("❌ Authentication failed. Ensure token.pickle exists and is valid.")
+    
+        if gc:
+            try:
+                sheet_url = st.text_input("Enter your Google Sheet URL:")
+                if sheet_url:
+                    sheet = gc.open_by_url(sheet_url).sheet1
+                    data = sheet.get_all_records()
+                    st.write("### Sheet Data")
+                    st.dataframe(data)
+            except Exception as e:
+                st.error(f"Error loading sheet: {e}")
         else:
-            sheet = gc.open("YourSheetName").sheet1
-            data = sheet.get_all_records()
-            st.write(data)
+            st.warning("Please authenticate with Google first.")
         
         # Load data
         if not st.session_state.data_loaded:
