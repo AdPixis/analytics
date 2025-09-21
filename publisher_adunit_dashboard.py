@@ -1,39 +1,12 @@
 import streamlit as st
+import gspread
 import pandas as pd
+from gspread_dataframe import get_as_dataframe
 import numpy as np
 import re
-import json
 from datetime import datetime
-from google_auth_oauthlib.flow import Flow
-from google.auth.transport.requests import Request
-import gspread
-from gspread_dataframe import get_as_dataframe
 
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-
-# Publisher configurations
-PUBLISHER_CONFIGS = {
-    "crikey": {
-        "bulk_url": "https://docs.google.com/spreadsheets/d/1SNG4-nWcm3ClYf3lsC6Kkucx07jukPzAgjAoeiDTz_g/edit?gid=1986199885#gid=1986199885",
-        "adx_url": "https://docs.google.com/spreadsheets/d/1SNG4-nWcm3ClYf3lsC6Kkucx07jukPzAgjAoeiDTz_g/edit?gid=1986199885#gid=1986199885",
-        "pub_url": "https://docs.google.com/spreadsheets/d/14hobXBFAI8y8iTHMGE8DqvOSImC6TsxZTlZ7V0CeMsQ/edit?gid=0#gid=0",
-        "network_code": "22817566290",
-        "batch_prefix": "new"
-    },
-    "psv": {
-        "bulk_url": "https://docs.google.com/spreadsheets/d/1b2cuF6n6LrENhQF8Ai5mnHCsURDJiHcNkxJir455920/edit?usp=sharing",
-        "adx_url": "https://docs.google.com/spreadsheets/d/1b2cuF6n6LrENhQF8Ai5mnHCsURDJiHcNkxJir455920/edit?usp=sharing",
-        "pub_url": "https://docs.google.com/spreadsheets/d/16WQVVND2jjPCBeClKdI8btmVLect_8cDa0zZtq7EkkE/edit?usp=sharing",
-        "network_code": "21775744923",
-        "batch_prefix": "P"
-    }
-}
-
-# Common constants
-VALID_ADX = ["adpixis"]
-VALID_FORMATS = ["rewarded", "interstitial", "appopen", "banner", "native"]
-
-# Page config
+# Page configuration
 st.set_page_config(
     page_title="Publisher AdUnit Validation Dashboard",
     page_icon="🔍",
@@ -77,16 +50,43 @@ st.markdown("""
         margin: 0.5rem 0;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     }
+    .confirm-button {
+        background: linear-gradient(135deg, #56ab2f 0%, #a8e6cf 100%);
+        color: white;
+        padding: 1rem 2rem;
+        border-radius: 10px;
+        border: none;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- Cached gspread client ---
-@st.cache_resource
-def get_gspread_client(creds):
-    return gspread.authorize(creds)
+# Publisher configurations
+PUBLISHER_CONFIGS = {
+    "crikey": {
+        "bulk_url": "https://docs.google.com/spreadsheets/d/1SNG4-nWcm3ClYf3lsC6Kkucx07jukPzAgjAoeiDTz_g/edit?gid=1986199885#gid=1986199885",
+        "adx_url": "https://docs.google.com/spreadsheets/d/1SNG4-nWcm3ClYf3lsC6Kkucx07jukPzAgjAoeiDTz_g/edit?gid=1986199885#gid=1986199885",
+        "pub_url": "https://docs.google.com/spreadsheets/d/14hobXBFAI8y8iTHMGE8DqvOSImC6TsxZTlZ7V0CeMsQ/edit?gid=0#gid=0",
+        "network_code": "22817566290",
+        "batch_prefix": "new"
+    },
+    "psv": {
+        "bulk_url": "https://docs.google.com/spreadsheets/d/1b2cuF6n6LrENhQF8Ai5mnHCsURDJiHcNkxJir455920/edit?usp=sharing",
+        "adx_url": "https://docs.google.com/spreadsheets/d/1b2cuF6n6LrENhQF8Ai5mnHCsURDJiHcNkxJir455920/edit?usp=sharing",
+        "pub_url": "https://docs.google.com/spreadsheets/d/16WQVVND2jjPCBeClKdI8btmVLect_8cDa0zZtq7EkkE/edit?usp=sharing",
+        "network_code": "21775744923",
+        "batch_prefix": "P"
+    }
+}
 
-# --- Helper functions ---
+# Common constants
+VALID_ADX = ["adpixis"]
+VALID_FORMATS = ["rewarded", "interstitial", "appopen", "banner", "native"]
+
 def excel_col_to_index(col):
+    """Convert Excel column letters to zero-based index"""
     col = col.upper()
     index = 0
     for i, char in enumerate(reversed(col)):
@@ -94,117 +94,32 @@ def excel_col_to_index(col):
     return index - 1
 
 def excel_columns(start: str, end: str):
+    """Generate list of Excel columns from start to end"""
     def col_to_num(col):
         num = 0
         for c in col:
             num = num * 26 + (ord(c) - ord('A') + 1)
         return num
+
     def num_to_col(num):
         col = ""
         while num > 0:
             num, remainder = divmod(num - 1, 26)
             col = chr(65 + remainder) + col
         return col
+
     start_num, end_num = col_to_num(start), col_to_num(end)
     return [num_to_col(i) for i in range(start_num, end_num + 1)]
 
-def load_sheet(gc, url, tab, header=0, columns=None):
+def load_sheet(sheet_url, header='infer', columns=None):
     try:
-        st.write(f"🔗 Attempting to open sheet URL: {url}")
-        
-        # Clean the URL - remove fragment identifiers that might cause issues
-        clean_url = url.split('#')[0].split('?')[0]
-        if '/edit' not in clean_url:
-            clean_url += '/edit'
-        
-        st.write(f"🧹 Cleaned URL: {clean_url}")
-        
-        # Try to open the spreadsheet first
-        try:
-            spreadsheet = gc.open_by_url(clean_url)
-            st.write(f"✅ Successfully opened spreadsheet: {spreadsheet.title}")
-        except Exception as e:
-            st.error(f"❌ Failed to open spreadsheet: {e}")
-            
-            # Try alternative approach - by spreadsheet ID
-            try:
-                # Extract spreadsheet ID from URL
-                import re
-                match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', url)
-                if match:
-                    sheet_id = match.group(1)
-                    st.write(f"🆔 Trying with spreadsheet ID: {sheet_id}")
-                    spreadsheet = gc.open_by_key(sheet_id)
-                    st.write(f"✅ Successfully opened spreadsheet by ID: {spreadsheet.title}")
-                else:
-                    raise Exception("Could not extract spreadsheet ID from URL")
-            except Exception as e2:
-                st.error(f"❌ Also failed with spreadsheet ID: {e2}")
-                st.error("Possible solutions:")
-                st.error("1. Make sure you're logged in with the correct Google account")
-                st.error("2. Try logging out and back in to the app")
-                st.error("3. Check if the sheet URL is correct")
-                return pd.DataFrame()
-        
-        # List all available worksheets
-        try:
-            available_tabs = [ws.title for ws in spreadsheet.worksheets()]
-            st.write(f"📋 Available tabs in sheet: {available_tabs}")
-        except Exception as e:
-            st.error(f"❌ Failed to list worksheets: {e}")
-            return pd.DataFrame()
-        
-        # Check if the requested tab exists
-        if tab not in available_tabs:
-            st.error(f"❌ Tab '{tab}' not found. Available tabs: {available_tabs}")
-            
-            # Suggest closest matches
-            suggestions = [t for t in available_tabs if tab.lower() in t.lower() or t.lower() in tab.lower()]
-            if suggestions:
-                st.info(f"💡 Did you mean one of these? {suggestions}")
-            
-            return pd.DataFrame()
-        
-        # Try to access the specific worksheet
-        try:
-            ws = spreadsheet.worksheet(tab)
-            st.write(f"✅ Successfully accessed worksheet: {tab}")
-        except Exception as e:
-            st.error(f"❌ Failed to access worksheet '{tab}': {e}")
-            return pd.DataFrame()
-        
-        # Try to load the data
-        try:
-            df = get_as_dataframe(ws, evaluate_formulas=True, header=header)
-            st.write(f"✅ Successfully loaded data. Shape: {df.shape}")
-            
-            if not df.empty:
-                st.write(f"📊 First few rows preview:")
-                st.dataframe(df.head(3))
-            else:
-                st.warning("⚠️ The worksheet appears to be empty")
-                
-        except Exception as e:
-            st.error(f"❌ Failed to load data from worksheet: {e}")
-            return pd.DataFrame()
-        
-        # Clean and process the data
-        df = df.dropna(how="all", axis=0).dropna(how="all", axis=1)
-        
-        if header == 0:
-            df.columns = df.columns.str.strip()
-        
+        df = pd.read_csv(sheet_url, header=header)
         if columns:
-            col_indices = [excel_col_to_index(c) for c in columns]
-            df = df.iloc[:, col_indices]
-        
-        st.write(f"✅ Data processing complete. Final shape: {df.shape}")
+            df = df[columns]
+        df = df.dropna(how="all", axis=0).dropna(how="all", axis=1)
         return df
-        
     except Exception as e:
-        st.error(f"❌ Unexpected error in load_sheet: {e}")
-        st.error(f"Sheet URL: {url}")
-        st.error(f"Requested tab: {tab}")
+        st.error(f"Error loading sheet: {str(e)}")
         return pd.DataFrame()
 
 def extract_parts(text):
@@ -257,7 +172,7 @@ def check_upr_exists(actual_floor, ad_unit, adx_df, tolerance=0.01):
         return False
 
     for placement_str in adx_rows['Placements'].dropna():
-        upr_matches = re.findall(r"UPR \$\s*([0-9]*\.?[0-9]+)", str(placement_str))
+        upr_matches = re.findall(r"UPR \\$\\s*([0-9]*\\.?[0-9]+)", str(placement_str))
         for upr_str in upr_matches:
             try:
                 upr_val = round(float(upr_str), 2)
@@ -271,137 +186,15 @@ def generate_batch_list(batch_prefix, start, end):
     """Generate batch list based on prefix and range"""
     return [f"{batch_prefix}{i}" for i in range(start, end + 1)]
 
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]  # read/write
-
-def authenticate_gsheets():
-    """
-    Authenticate with Google Sheets using OAuth in Streamlit.
-    Handles first-time auth, token refresh, and forced reauth.
-    """
-
-    # --- Force reauth if user requested ---
-    if st.session_state.get('force_reauth'):
-        st.session_state.pop('creds', None)
-        st.session_state.pop('auth_flow', None)
-        st.session_state['force_reauth'] = False
-        st.experimental_rerun()
-
-    redirect_uri = st.secrets.get("REDIRECT_URI", "https://adpixis-analytics.streamlit.app")
-    st.write("Debug - Auth state:", {
-        'has_creds': 'creds' in st.session_state,
-        'has_auth_flow': 'auth_flow' in st.session_state,
-        'query_params': dict(st.query_params),
-        'redirect_uri_used': redirect_uri
-    })
-    st.info(f"**Make sure this exact URI is in your Google Cloud Console:** `{redirect_uri}`")
-
-    # --- Step 1: Check if credentials exist ---
-    creds = st.session_state.get('creds')
-    if creds:
-        # Refresh token if expired
-        if creds.expired and creds.refresh_token:
-            try:
-                creds.refresh(Request())
-                st.session_state['creds'] = creds
-            except Exception as e:
-                st.error(f"Error refreshing credentials: {e}")
-                st.session_state.pop('creds', None)
-                st.session_state.pop('auth_flow', None)
-                st.experimental_rerun()
-        return gspread.authorize(creds)
-
-    # --- Step 2: Setup OAuth flow ---
-    if 'auth_flow' not in st.session_state:
-        try:
-            secrets_config = st.secrets["GOOGLE_CLIENT_SECRETS"]
-
-            if isinstance(secrets_config, str):
-                client_config = json.loads(secrets_config)
-            else:
-                client_config = {
-                    "web": {
-                        "client_id": secrets_config.client_id,
-                        "client_secret": secrets_config.client_secret,
-                        "auth_uri": secrets_config.auth_uri,
-                        "token_uri": secrets_config.token_uri,
-                        "auth_provider_x509_cert_url": secrets_config.auth_provider_x509_cert_url,
-                        "redirect_uris": [redirect_uri]
-                    }
-                }
-
-            if "web" not in client_config:
-                st.error("Invalid client config: missing 'web' section")
-                return None
-
-            st.session_state['auth_flow'] = Flow.from_client_config(
-                client_config,
-                scopes=SCOPES,
-                redirect_uri=redirect_uri
-            )
-        except Exception as e:
-            st.error(f"Error configuring Google OAuth: {e}")
-            st.error("Please check your GOOGLE_CLIENT_SECRETS in Streamlit secrets.")
-            return None
-
-    # --- Step 3: Handle code from Google redirect ---
-    query_params = st.query_params
-    if "code" in query_params:
-        try:
-            code = query_params["code"]
-            st.session_state['auth_flow'].fetch_token(code=code)
-            st.session_state['creds'] = st.session_state['auth_flow'].credentials
-            st.query_params.clear()
-            st.success("✅ Authentication successful! Reloading...")
-            st.experimental_rerun()
-        except Exception as e:
-            st.error(f"Error exchanging code for token: {e}")
-            st.query_params.clear()
-            return None
-
-    # --- Step 4: Show login link if no code yet ---
-    auth_url, _ = st.session_state['auth_flow'].authorization_url(prompt='consent')
-    st.markdown("### Please authenticate with Google")
-    st.markdown(f"**[Click here to sign in with Google]({auth_url})**")
-    st.markdown("If you already signed in and see 403, try clicking the 'Reauthenticate' button below.")
-
-    # --- Optional reauth button ---
-    if st.button("🔄 Reauthenticate with Google"):
-        st.session_state['force_reauth'] = True
-        st.experimental_rerun()
-
-    return None
-
-# --- Main App ---
 def main():
     st.title("🔍 Publisher AdUnit Validation Dashboard")
     st.markdown("---")
-    
+
     # Initialize session state
     if 'data_loaded' not in st.session_state:
         st.session_state.data_loaded = False
     if 'config_confirmed' not in st.session_state:
         st.session_state.config_confirmed = False
-
-    # Authentication check first
-    gc = authenticate_gsheets()
-    if not gc:
-        st.warning("Please authenticate with Google first.")
-        return
-    
-    # Add account verification
-    try:
-        # Try to get user info to verify which account is authenticated
-        st.write("🔍 **Authentication Check:**")
-        # List a few sheets to test access
-        sheets = gc.list_spreadsheet_files()[:3]  # Just first 3 to avoid overload
-        st.write(f"✅ Authenticated successfully. Can access {len(sheets)} spreadsheets.")
-        if sheets:
-            st.write("Sample accessible sheets:")
-            for sheet in sheets[:3]:
-                st.write(f"- {sheet.get('name', 'Unknown')}")
-    except Exception as e:
-        st.error(f"Authentication test failed: {e}")
-        st.error("This suggests the authentication or permissions setup needs attention.")
 
     # Configuration Section
     if not st.session_state.config_confirmed:
@@ -469,6 +262,7 @@ def main():
 
             with col5:
                 col_end = st.text_input("Publisher Sheet - End Column", value="H")
+                st.write("")  # Empty space for alignment
 
             st.markdown("---")
 
@@ -535,7 +329,7 @@ def main():
 
         st.markdown("---")
 
-        # Load data if not already loaded
+        # Load data
         if not st.session_state.data_loaded:
             with st.spinner("🔄 Loading data from Google Sheets..."):
                 try:
@@ -648,7 +442,7 @@ def main():
                         for val in pub_df[col].dropna().astype(str).str.strip():
                             entry_result = {"Entry": val, "Column": col, "Validation": "✅"}
 
-                            if re.search(r"\s", val):
+                            if re.search(r"\\s", val):
                                 entry_result["Validation"] = "❌ Contains space(s)"
                             else:
                                 prefix_pattern = rf'^/23104024203,{st.session_state.pub_config["network_code"]}/'
@@ -836,7 +630,8 @@ def main():
                         with st.expander("✅ Sample Valid Entries"):
                             st.dataframe(valid_entries, use_container_width=True)
                 else:
-                    st.warning("No publisher data available for validation.")
+                    st.warning(f"No publisher data available for validation.")
 
 if __name__ == "__main__":
     main()
+'''
