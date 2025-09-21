@@ -111,7 +111,36 @@ def generate_batch_list(batch_prefix, start, end):
 
 # --- Google OAuth flow ---
 def authenticate_gsheets():
+    # Get the current URL to use as redirect URI
+    try:
+        # Try to get the current URL
+        redirect_uri = st.secrets.get("REDIRECT_URI", "https://adpixis-analytics.streamlit.app")
+    except:
+        redirect_uri = "https://adpixis-analytics.streamlit.app"
+    
+    # Debug: Show current authentication state
+    st.write("Debug - Auth state:", {
+        'has_creds': 'creds' in st.session_state,
+        'has_auth_flow': 'auth_flow' in st.session_state,
+        'query_params': dict(st.query_params)
+    })
+    
     if 'creds' not in st.session_state:
+        # Check if Google redirected with code first
+        query_params = st.query_params
+        if "code" in query_params and 'auth_flow' in st.session_state:
+            try:
+                code = query_params["code"]
+                st.write(f"Debug - Got auth code: {code[:10]}...")
+                st.session_state['auth_flow'].fetch_token(code=code)
+                st.session_state['creds'] = st.session_state['auth_flow'].credentials
+                st.query_params.clear()  # Clear query params after using
+                st.success("Authentication successful! Reloading...")
+                st.rerun()  # Reload the app to show authenticated state
+            except Exception as e:
+                st.error(f"Error during token exchange: {e}")
+                return None
+        
         if 'auth_flow' not in st.session_state:
             try:
                 # Check if it's a string (JSON format) or AttrDict (individual fields)
@@ -129,7 +158,7 @@ def authenticate_gsheets():
                             "auth_uri": secrets_config.auth_uri,
                             "token_uri": secrets_config.token_uri,
                             "auth_provider_x509_cert_url": secrets_config.auth_provider_x509_cert_url,
-                            "redirect_uris": ["https://adpixis-analytics.streamlit.app"]
+                            "redirect_uris": [redirect_uri]
                         }
                     }
             except Exception as e:
@@ -145,23 +174,32 @@ def authenticate_gsheets():
             st.session_state['auth_flow'] = Flow.from_client_config(
                 client_config,
                 scopes=SCOPES,
-                redirect_uri="https://adpixis-analytics.streamlit.app"
+                redirect_uri=redirect_uri
             )
+            
+        # Show login link if no code yet
+        if "code" not in query_params:
             auth_url, _ = st.session_state['auth_flow'].authorization_url(prompt='consent')
-            st.markdown(f"[Sign in with Google]({auth_url})")
+            st.markdown(f"### Please authenticate with Google")
+            st.markdown(f"**[Click here to sign in with Google]({auth_url})**")
             return None
+        
+        return None
 
-        # Check if Google redirected with code
-        query_params = st.query_params
-        if "code" in query_params:
-            code = query_params["code"]
-            st.session_state['auth_flow'].fetch_token(code=code)
-            st.session_state['creds'] = st.session_state['auth_flow'].credentials
-            st.query_params.clear()  # Clear query params after using
-        else:
-            return None
-
+    # If we have credentials, verify they're still valid
     creds = st.session_state['creds']
+    if creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+        except Exception as e:
+            st.error(f"Error refreshing credentials: {e}")
+            # Clear invalid credentials
+            del st.session_state['creds']
+            if 'auth_flow' in st.session_state:
+                del st.session_state['auth_flow']
+            st.rerun()
+            return None
+    
     return gspread.authorize(creds)
 
 # --- Main App ---
