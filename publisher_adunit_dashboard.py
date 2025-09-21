@@ -113,9 +113,34 @@ def generate_batch_list(batch_prefix, start, end):
 def authenticate_gsheets():
     if 'creds' not in st.session_state:
         if 'auth_flow' not in st.session_state:
-            # Use the secrets directly - they're already in the correct format
+            try:
+                # Try to parse JSON first
+                client_config = json.loads(st.secrets["GOOGLE_CLIENT_SECRETS"])
+            except (json.JSONDecodeError, KeyError):
+                # Fallback: construct from individual fields
+                try:
+                    client_config = {
+                        "web": {
+                            "client_id": st.secrets.GOOGLE_CLIENT_SECRETS.client_id,
+                            "client_secret": st.secrets.GOOGLE_CLIENT_SECRETS.client_secret,
+                            "auth_uri": st.secrets.GOOGLE_CLIENT_SECRETS.auth_uri,
+                            "token_uri": st.secrets.GOOGLE_CLIENT_SECRETS.token_uri,
+                            "auth_provider_x509_cert_url": st.secrets.GOOGLE_CLIENT_SECRETS.auth_provider_x509_cert_url,
+                            "redirect_uris": ["https://adpixis-analytics.streamlit.app"]
+                        }
+                    }
+                except Exception as e:
+                    st.error(f"Error configuring Google OAuth: {e}")
+                    st.error("Please check your GOOGLE_CLIENT_SECRETS configuration in Streamlit secrets.")
+                    return None
+            
+            # Validate the config has the required structure
+            if "web" not in client_config:
+                st.error("Invalid client config: missing 'web' section")
+                return None
+                
             st.session_state['auth_flow'] = Flow.from_client_config(
-                json.loads(st.secrets["GOOGLE_CLIENT_SECRETS"]),  # Parse JSON
+                client_config,
                 scopes=SCOPES,
                 redirect_uri="https://adpixis-analytics.streamlit.app"
             )
