@@ -273,6 +273,14 @@ def generate_batch_list(batch_prefix, start, end):
 
 # --- Google OAuth flow ---
 def authenticate_gsheets():
+    # --- Force fresh OAuth if needed ---
+    if 'force_reauth' in st.session_state and st.session_state['force_reauth']:
+        if 'creds' in st.session_state:
+            del st.session_state['creds']
+        if 'auth_flow' in st.session_state:
+            del st.session_state['auth_flow']
+        st.experimental_rerun()
+        
     # Get the current URL to use as redirect URI
     try:
         redirect_uri = st.secrets.get("REDIRECT_URI", "https://adpixis-analytics.streamlit.app")
