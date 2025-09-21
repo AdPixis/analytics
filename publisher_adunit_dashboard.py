@@ -110,17 +110,36 @@ def excel_columns(start: str, end: str):
 
 def load_sheet(gc, url, tab, header=0, columns=None):
     try:
-        ws = gc.open_by_url(url).worksheet(tab)
+        # First, try to open the sheet and list all available worksheets
+        spreadsheet = gc.open_by_url(url)
+        available_tabs = [ws.title for ws in spreadsheet.worksheets()]
+        
+        st.write(f"Available tabs in sheet: {available_tabs}")
+        
+        if tab not in available_tabs:
+            st.error(f"Tab '{tab}' not found. Available tabs: {available_tabs}")
+            return pd.DataFrame()
+        
+        ws = spreadsheet.worksheet(tab)
         df = get_as_dataframe(ws, evaluate_formulas=True, header=header)
+        
+        st.write(f"Loaded data shape: {df.shape}")
+        st.write(f"First few rows preview:")
+        st.dataframe(df.head(3))
+        
         df = df.dropna(how="all", axis=0).dropna(how="all", axis=1)
+        
         if header == 0:
             df.columns = df.columns.str.strip()
+        
         if columns:
             col_indices = [excel_col_to_index(c) for c in columns]
             df = df.iloc[:, col_indices]
+        
         return df
     except Exception as e:
         st.error(f"Error loading sheet {tab}: {e}")
+        st.error(f"Sheet URL: {url}")
         return pd.DataFrame()
 
 def extract_parts(text):
