@@ -125,7 +125,7 @@ def authenticate_gsheets():
         flow = Flow.from_client_config(
             client_config,
             scopes=SCOPES,
-            redirect_uri=st.secrets["https://adpixis-analytics.streamlit.app/"]  # e.g., https://adpixis-analytics.streamlit.app/
+            redirect_uri=st.secrets["https://adpixis-analytics.streamlit.app"]  # e.g., https://adpixis-analytics.streamlit.app/
         )
         auth_url, _ = flow.authorization_url(prompt='consent')
         st.write("### Sign in with Google to access your Sheets")
