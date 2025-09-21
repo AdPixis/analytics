@@ -114,25 +114,28 @@ def authenticate_gsheets():
     if 'creds' not in st.session_state:
         if 'auth_flow' not in st.session_state:
             try:
-                # Try to parse JSON first
-                client_config = json.loads(st.secrets["GOOGLE_CLIENT_SECRETS"])
-            except (json.JSONDecodeError, KeyError):
-                # Fallback: construct from individual fields
-                try:
+                # Check if it's a string (JSON format) or AttrDict (individual fields)
+                secrets_config = st.secrets["GOOGLE_CLIENT_SECRETS"]
+                
+                if isinstance(secrets_config, str):
+                    # It's a JSON string
+                    client_config = json.loads(secrets_config)
+                else:
+                    # It's an AttrDict with individual fields
                     client_config = {
                         "web": {
-                            "client_id": st.secrets.GOOGLE_CLIENT_SECRETS.client_id,
-                            "client_secret": st.secrets.GOOGLE_CLIENT_SECRETS.client_secret,
-                            "auth_uri": st.secrets.GOOGLE_CLIENT_SECRETS.auth_uri,
-                            "token_uri": st.secrets.GOOGLE_CLIENT_SECRETS.token_uri,
-                            "auth_provider_x509_cert_url": st.secrets.GOOGLE_CLIENT_SECRETS.auth_provider_x509_cert_url,
+                            "client_id": secrets_config.client_id,
+                            "client_secret": secrets_config.client_secret,
+                            "auth_uri": secrets_config.auth_uri,
+                            "token_uri": secrets_config.token_uri,
+                            "auth_provider_x509_cert_url": secrets_config.auth_provider_x509_cert_url,
                             "redirect_uris": ["https://adpixis-analytics.streamlit.app"]
                         }
                     }
-                except Exception as e:
-                    st.error(f"Error configuring Google OAuth: {e}")
-                    st.error("Please check your GOOGLE_CLIENT_SECRETS configuration in Streamlit secrets.")
-                    return None
+            except Exception as e:
+                st.error(f"Error configuring Google OAuth: {e}")
+                st.error("Please check your GOOGLE_CLIENT_SECRETS configuration in Streamlit secrets.")
+                return None
             
             # Validate the config has the required structure
             if "web" not in client_config:
