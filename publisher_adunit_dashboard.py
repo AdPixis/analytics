@@ -2,32 +2,33 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import re
-from datetime import datetime
-
-# Google Sheets / OAuth
-import gspread
-from gspread_dataframe import get_as_dataframe
+import json
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
-
-# For storing credentials temporarily (optional)
-import pickle
-import json
+import gspread
+from gspread_dataframe import get_as_dataframe
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
-# Load Google OAuth client secrets from Streamlit secrets
-client_secrets_json = st.secrets["GOOGLE_CLIENT_SECRETS"]
-client_config = json.loads(client_secrets_json)
+# Load client config from secrets
+client_config = {
+    "web": {
+        "client_id": st.secrets["GOOGLE_CLIENT_SECRETS"]["client_id"],
+        "client_secret": st.secrets["GOOGLE_CLIENT_SECRETS"]["client_secret"],
+        "redirect_uris": [st.secrets["GOOGLE_CLIENT_SECRETS"]["redirect_uri"]],
+        "auth_uri": st.secrets["GOOGLE_CLIENT_SECRETS"]["auth_uri"],
+        "token_uri": st.secrets["GOOGLE_CLIENT_SECRETS"]["token_uri"]
+    }
+}
 
-# Page configuration
+# Page config
 st.set_page_config(
     page_title="Publisher AdUnit Validation Dashboard",
     page_icon="🔍",
     layout="wide"
 )
 
-# --- Cached function to create gspread client ---
+# --- Cached gspread client ---
 @st.cache_resource
 def get_gspread_client(creds):
     return gspread.authorize(creds)
@@ -119,38 +120,37 @@ def check_upr_exists(actual_floor, ad_unit, adx_df, tolerance=0.01):
 def generate_batch_list(batch_prefix, start, end):
     return [f"{batch_prefix}{i}" for i in range(start, end + 1)]
 
-# --- Google Sign-In flow ---
+# --- Google OAuth flow ---
 def authenticate_gsheets():
     if 'creds' not in st.session_state:
-        flow = Flow.from_client_config(
+        st.session_state['auth_flow'] = Flow.from_client_config(
             client_config,
             scopes=SCOPES,
-            redirect_uri=st.secrets["https://adpixis-analytics.streamlit.app"]  # e.g., https://adpixis-analytics.streamlit.app/
+            redirect_uri=client_config["web"]["redirect_uris"][0]
         )
-        auth_url, _ = flow.authorization_url(prompt='consent')
-        st.write("### Sign in with Google to access your Sheets")
-        st.write(f"[Click here to sign in]({auth_url})")
-        code = st.text_input("Enter the code you received after signing in:")
+        auth_url, _ = st.session_state['auth_flow'].authorization_url(prompt='consent')
+        st.markdown(f"[Sign in with Google]({auth_url})")
+        code = st.text_input("Enter the code from Google here:")
         if code:
-            flow.fetch_token(code=code)
-            creds = flow.credentials
-            st.session_state['creds'] = creds
+            try:
+                st.session_state['auth_flow'].fetch_token(code=code)
+                st.session_state['creds'] = st.session_state['auth_flow'].credentials
+            except Exception as e:
+                st.error(f"Failed to fetch token: {e}")
+                return None
         else:
             return None
-    else:
-        creds = st.session_state['creds']
-    return get_gspread_client(creds)
+    return get_gspread_client(st.session_state['creds'])
 
 # --- Main App ---
 def main():
     st.title("🔍 Publisher AdUnit Validation Dashboard")
-
+    
     gc = authenticate_gsheets()
     if not gc:
         st.warning("Please authenticate with Google first.")
         return
 
-    # Example: Load a sheet after authentication
     sheet_url = st.text_input("Enter your Google Sheet URL:")
     if sheet_url:
         try:
