@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import re
-import json
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 import gspread
@@ -10,9 +9,16 @@ from gspread_dataframe import get_as_dataframe
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
-# Load client config from secrets
-client_secrets_json = st.secrets["GOOGLE_CLIENT_SECRETS"]  # this is a JSON string
-client_config = json.loads(client_secrets_json)
+# Load client config from secrets directly (no json.loads)
+client_config = {
+    "web": {
+        "client_id": st.secrets["GOOGLE_CLIENT_SECRETS"]["client_id"],
+        "client_secret": st.secrets["GOOGLE_CLIENT_SECRETS"]["client_secret"],
+        "redirect_uris": st.secrets["GOOGLE_CLIENT_SECRETS"]["redirect_uris"],
+        "auth_uri": st.secrets["GOOGLE_CLIENT_SECRETS"]["auth_uri"],
+        "token_uri": st.secrets["GOOGLE_CLIENT_SECRETS"]["token_uri"]
+    }
+}
 
 # Page config
 st.set_page_config(
