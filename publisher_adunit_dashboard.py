@@ -122,24 +122,28 @@ def generate_batch_list(batch_prefix, start, end):
 # --- Google OAuth flow ---
 def authenticate_gsheets():
     if 'creds' not in st.session_state:
-        st.session_state['auth_flow'] = Flow.from_client_config(
-            client_config,
-            scopes=SCOPES,
-            redirect_uri=client_config["web"]["redirect_uris"][0]
-        )
-        auth_url, _ = st.session_state['auth_flow'].authorization_url(prompt='consent')
-        st.markdown(f"[Sign in with Google]({auth_url})")
-        code = st.text_input("Enter the code from Google here:")
-        if code:
-            try:
-                st.session_state['auth_flow'].fetch_token(code=code)
-                st.session_state['creds'] = st.session_state['auth_flow'].credentials
-            except Exception as e:
-                st.error(f"Failed to fetch token: {e}")
-                return None
+        if 'auth_flow' not in st.session_state:
+            st.session_state['auth_flow'] = Flow.from_client_config(
+                st.secrets["GOOGLE_CLIENT_SECRETS"],
+                scopes=SCOPES,
+                redirect_uri="https://adpixis-analytics.streamlit.app"
+            )
+            auth_url, _ = st.session_state['auth_flow'].authorization_url(prompt='consent')
+            st.markdown(f"[Sign in with Google]({auth_url})")
+            return None
+
+        # Check if Google redirected with code
+        query_params = st.experimental_get_query_params()
+        if "code" in query_params:
+            code = query_params["code"][0]
+            st.session_state['auth_flow'].fetch_token(code=code)
+            st.session_state['creds'] = st.session_state['auth_flow'].credentials
+            st.experimental_set_query_params()  # Clear query params after using
         else:
             return None
-    return get_gspread_client(st.session_state['creds'])
+
+    creds = st.session_state['creds']
+    return gspread.authorize(creds)
 
 # --- Main App ---
 def main():
