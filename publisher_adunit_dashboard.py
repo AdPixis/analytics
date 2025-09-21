@@ -335,7 +335,7 @@ def main():
                 try:
                     # Load AdX data
                     st.write("📊 Loading AdX data...")
-                    adx = load_sheet(gc, st.session_state.pub_config['adx_url'], st.session_state.adx_tab, header=None)
+                    adx = load_sheet(st.session_state.pub_config['adx_url'], header=None)
                     if adx.empty:
                         st.error(f"❌ Failed to load AdX data from tab: {st.session_state.adx_tab}")
                         st.stop()
@@ -359,7 +359,7 @@ def main():
 
                     # Load Bulk data
                     st.write("📊 Loading Bulk data...")
-                    bulk = load_sheet(gc, st.session_state.pub_config['bulk_url'], st.session_state.bulk_tab, header=0)
+                    bulk = load_sheet(st.session_state.pub_config['bulk_url'], header=0)
                     if bulk.empty:
                         st.error(f"❌ Failed to load Bulk data from tab: {st.session_state.bulk_tab}")
                         st.stop()
@@ -379,7 +379,7 @@ def main():
                     st.write("📊 Loading Publisher data...")
                     try:
                         selected_columns = excel_columns(st.session_state.col_start, st.session_state.col_end)
-                        pub_df = load_sheet(gc, st.session_state.pub_config['pub_url'], st.session_state.pub_tab, header=0, columns=selected_columns)
+                        pub_df = load_sheet(st.session_state.pub_config['pub_url'], header=0, columns=selected_columns)
                     except Exception as e:
                         st.error(f"❌ Error loading publisher data: {str(e)}")
                         st.error(f"Check column range {st.session_state.col_start}-{st.session_state.col_end} and tab name '{st.session_state.pub_tab}'")
