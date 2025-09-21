@@ -10,13 +10,15 @@ from gspread_dataframe import get_as_dataframe
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
 # Load client config from secrets directly (no json.loads)
+# Convert Streamlit secrets into the correct dict for Flow
 client_config = {
     "web": {
-        "client_id": st.secrets["GOOGLE_CLIENT_SECRETS"]["client_id"],
-        "client_secret": st.secrets["GOOGLE_CLIENT_SECRETS"]["client_secret"],
-        "redirect_uris": st.secrets["GOOGLE_CLIENT_SECRETS"]["redirect_uris"],
-        "auth_uri": st.secrets["GOOGLE_CLIENT_SECRETS"]["auth_uri"],
-        "token_uri": st.secrets["GOOGLE_CLIENT_SECRETS"]["token_uri"]
+        "client_id": st.secrets.GOOGLE_CLIENT_SECRETS.client_id,
+        "client_secret": st.secrets.GOOGLE_CLIENT_SECRETS.client_secret,
+        "auth_uri": st.secrets.GOOGLE_CLIENT_SECRETS.auth_uri,
+        "token_uri": st.secrets.GOOGLE_CLIENT_SECRETS.token_uri,
+        "redirect_uris": st.secrets.GOOGLE_CLIENT_SECRETS.redirect_uris,
+        "javascript_origins": st.secrets.GOOGLE_CLIENT_SECRETS.javascript_origins
     }
 }
 
