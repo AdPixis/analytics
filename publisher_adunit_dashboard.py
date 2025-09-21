@@ -122,8 +122,11 @@ def authenticate_gsheets():
     st.write("Debug - Auth state:", {
         'has_creds': 'creds' in st.session_state,
         'has_auth_flow': 'auth_flow' in st.session_state,
-        'query_params': dict(st.query_params)
+        'query_params': dict(st.query_params),
+        'redirect_uri_used': redirect_uri
     })
+    
+    st.info(f"**Make sure this exact URI is in your Google Cloud Console:** `{redirect_uri}`")
     
     if 'creds' not in st.session_state:
         # Check if Google redirected with code first
