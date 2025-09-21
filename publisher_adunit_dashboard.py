@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import re
+import json
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 import gspread
@@ -114,7 +115,7 @@ def authenticate_gsheets():
         if 'auth_flow' not in st.session_state:
             # Use the secrets directly - they're already in the correct format
             st.session_state['auth_flow'] = Flow.from_client_config(
-                st.secrets["GOOGLE_CLIENT_SECRETS"],
+                json.loads(st.secrets["GOOGLE_CLIENT_SECRETS"]),  # Parse JSON
                 scopes=SCOPES,
                 redirect_uri="https://adpixis-analytics.streamlit.app"
             )
