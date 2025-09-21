@@ -6,12 +6,15 @@ import numpy as np
 import re
 from datetime import datetime
 import gspread
+from google.auth.transport.requests import Request
 from gspread_dataframe import get_as_dataframe
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 import pickle
 import json
+
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
 # Page configuration
 st.set_page_config(
@@ -120,52 +123,28 @@ def excel_columns(start: str, end: str):
 
 @st.cache_resource
 def authenticate_gsheets():
-    """Authenticate using OAuth2 and allow only specific emails"""
-    SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-    
-    if 'creds' not in st.session_state:
-        creds = None
-        # Load token if exists
-        if os.path.exists('token.pickle'):
-            with open('token.pickle', 'rb') as token:
-                creds = pickle.load(token)
-        
-        # Authenticate if no valid creds
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = Flow.from_client_secrets_file(
-                    'credentials.json',
-                    scopes=SCOPES,
-                    redirect_uri='urn:ietf:wg:oauth:2.0:oob'
-                )
-                auth_url, _ = flow.authorization_url(prompt='consent')
-                st.info(f"[Click here to authorize your Google account]({auth_url})")
-                code = st.text_input("Enter the authorization code here:")
-                
-                if code:
-                    flow.fetch_token(code=code)
-                    creds = flow.credentials
-                    with open('token.pickle', 'wb') as token:
-                        pickle.dump(creds, token)
-        
-        st.session_state.creds = creds
-    else:
-        creds = st.session_state.creds
-    
-    # Get user email
-    service = build('oauth2', 'v2', credentials=creds)
-    userinfo = service.userinfo().get().execute()
-    email = userinfo['email']
-    
-    allowed_emails = ["jay@adpixis.com"]  # Replace with your email
-    if email not in allowed_emails:
-        st.error("Access denied. Your email is not authorized.")
-        st.stop()
-    
-    # Authorize gspread
-    return gspread.authorize(creds)
+    """
+    Authenticate with Google Sheets using a pre-generated token.pickle.
+    Returns a gspread client.
+    """
+    creds = None
+
+    # Load token if it exists
+    if os.path.exists('token.pickle'):
+        with open('token.pickle', 'rb') as token_file:
+            creds = pickle.load(token_file)
+
+    # If credentials are expired, refresh them
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+
+    # If creds is None, authentication failed
+    if not creds:
+        return None
+
+    # Authorize gspread client
+    gc = gspread.authorize(creds)
+    return gc
 
 def load_sheet(_gc, url, tab, header=0, columns=None):
     """Load data from Google Sheet"""
@@ -399,9 +378,11 @@ def main():
         # Authentication check
         gc = authenticate_gsheets()
         if not gc:
-            st.error("❌ Authentication failed. Please ensure you've authenticated with Google in your Colab notebook.")
-            st.code("auth.authenticate_user()")
-            st.stop()
+            st.error("❌ Authentication failed. Ensure token.pickle exists and is valid.")
+        else:
+            sheet = gc.open("YourSheetName").sheet1
+            data = sheet.get_all_records()
+            st.write(data)
         
         # Load data
         if not st.session_state.data_loaded:
