@@ -11,15 +11,8 @@ from gspread_dataframe import get_as_dataframe
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 
 # Load client config from secrets
-client_config = {
-    "web": {
-        "client_id": st.secrets["GOOGLE_CLIENT_SECRETS"]["client_id"],
-        "client_secret": st.secrets["GOOGLE_CLIENT_SECRETS"]["client_secret"],
-        "redirect_uris": [st.secrets["GOOGLE_CLIENT_SECRETS"]["redirect_uri"]],
-        "auth_uri": st.secrets["GOOGLE_CLIENT_SECRETS"]["auth_uri"],
-        "token_uri": st.secrets["GOOGLE_CLIENT_SECRETS"]["token_uri"]
-    }
-}
+client_secrets_json = st.secrets["GOOGLE_CLIENT_SECRETS"]  # this is a JSON string
+client_config = json.loads(client_secrets_json)
 
 # Page config
 st.set_page_config(
