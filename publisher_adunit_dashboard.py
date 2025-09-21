@@ -271,140 +271,105 @@ def generate_batch_list(batch_prefix, start, end):
     """Generate batch list based on prefix and range"""
     return [f"{batch_prefix}{i}" for i in range(start, end + 1)]
 
-# --- Google OAuth flow ---
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]  # read/write
+
 def authenticate_gsheets():
-    # --- Force fresh OAuth if needed ---
-    if 'force_reauth' in st.session_state and st.session_state['force_reauth']:
-        if 'creds' in st.session_state:
-            del st.session_state['creds']
-        if 'auth_flow' in st.session_state:
-            del st.session_state['auth_flow']
+    """
+    Authenticate with Google Sheets using OAuth in Streamlit.
+    Handles first-time auth, token refresh, and forced reauth.
+    """
+
+    # --- Force reauth if user requested ---
+    if st.session_state.get('force_reauth'):
+        st.session_state.pop('creds', None)
+        st.session_state.pop('auth_flow', None)
+        st.session_state['force_reauth'] = False
         st.experimental_rerun()
-        
-    # Get the current URL to use as redirect URI
-    try:
-        redirect_uri = st.secrets.get("REDIRECT_URI", "https://adpixis-analytics.streamlit.app")
-    except:
-        redirect_uri = "https://adpixis-analytics.streamlit.app"
-    
-    # Debug: Show current authentication state
+
+    redirect_uri = st.secrets.get("REDIRECT_URI", "https://adpixis-analytics.streamlit.app")
     st.write("Debug - Auth state:", {
         'has_creds': 'creds' in st.session_state,
         'has_auth_flow': 'auth_flow' in st.session_state,
         'query_params': dict(st.query_params),
         'redirect_uri_used': redirect_uri
     })
-    
     st.info(f"**Make sure this exact URI is in your Google Cloud Console:** `{redirect_uri}`")
-    
-    if 'creds' not in st.session_state:
-        # Check if Google redirected with code first
-        query_params = st.query_params
-        if "code" in query_params:
-            # We have a code, but need to ensure we have auth_flow
-            if 'auth_flow' not in st.session_state:
-                # Recreate the auth flow (it was lost when Google redirected back)
-                try:
-                    secrets_config = st.secrets["GOOGLE_CLIENT_SECRETS"]
-                    
-                    if isinstance(secrets_config, str):
-                        client_config = json.loads(secrets_config)
-                    else:
-                        client_config = {
-                            "web": {
-                                "client_id": secrets_config.client_id,
-                                "client_secret": secrets_config.client_secret,
-                                "auth_uri": secrets_config.auth_uri,
-                                "token_uri": secrets_config.token_uri,
-                                "auth_provider_x509_cert_url": secrets_config.auth_provider_x509_cert_url,
-                                "redirect_uris": [redirect_uri]
-                            }
-                        }
-                    
-                    st.session_state['auth_flow'] = Flow.from_client_config(
-                        client_config,
-                        scopes=SCOPES,
-                        redirect_uri=redirect_uri
-                    )
-                except Exception as e:
-                    st.error(f"Error recreating auth flow: {e}")
-                    return None
-            
-            # Now exchange the code for credentials
+
+    # --- Step 1: Check if credentials exist ---
+    creds = st.session_state.get('creds')
+    if creds:
+        # Refresh token if expired
+        if creds.expired and creds.refresh_token:
             try:
-                code = query_params["code"]
-                st.write(f"Debug - Got auth code: {code[:10]}...")
-                st.session_state['auth_flow'].fetch_token(code=code)
-                st.session_state['creds'] = st.session_state['auth_flow'].credentials
-                st.query_params.clear()  # Clear query params after using
-                st.success("Authentication successful! Reloading...")
-                st.rerun()  # Reload the app to show authenticated state
+                creds.refresh(Request())
+                st.session_state['creds'] = creds
             except Exception as e:
-                st.error(f"Error during token exchange: {e}")
-                # Clear query params so user can try again
-                st.query_params.clear()
-                return None
-        
-        if 'auth_flow' not in st.session_state:
-            try:
-                # Check if it's a string (JSON format) or AttrDict (individual fields)
-                secrets_config = st.secrets["GOOGLE_CLIENT_SECRETS"]
-                
-                if isinstance(secrets_config, str):
-                    # It's a JSON string
-                    client_config = json.loads(secrets_config)
-                else:
-                    # It's an AttrDict with individual fields
-                    client_config = {
-                        "web": {
-                            "client_id": secrets_config.client_id,
-                            "client_secret": secrets_config.client_secret,
-                            "auth_uri": secrets_config.auth_uri,
-                            "token_uri": secrets_config.token_uri,
-                            "auth_provider_x509_cert_url": secrets_config.auth_provider_x509_cert_url,
-                            "redirect_uris": [redirect_uri]
-                        }
+                st.error(f"Error refreshing credentials: {e}")
+                st.session_state.pop('creds', None)
+                st.session_state.pop('auth_flow', None)
+                st.experimental_rerun()
+        return gspread.authorize(creds)
+
+    # --- Step 2: Setup OAuth flow ---
+    if 'auth_flow' not in st.session_state:
+        try:
+            secrets_config = st.secrets["GOOGLE_CLIENT_SECRETS"]
+
+            if isinstance(secrets_config, str):
+                client_config = json.loads(secrets_config)
+            else:
+                client_config = {
+                    "web": {
+                        "client_id": secrets_config.client_id,
+                        "client_secret": secrets_config.client_secret,
+                        "auth_uri": secrets_config.auth_uri,
+                        "token_uri": secrets_config.token_uri,
+                        "auth_provider_x509_cert_url": secrets_config.auth_provider_x509_cert_url,
+                        "redirect_uris": [redirect_uri]
                     }
-            except Exception as e:
-                st.error(f"Error configuring Google OAuth: {e}")
-                st.error("Please check your GOOGLE_CLIENT_SECRETS configuration in Streamlit secrets.")
-                return None
-            
-            # Validate the config has the required structure
+                }
+
             if "web" not in client_config:
                 st.error("Invalid client config: missing 'web' section")
                 return None
-                
+
             st.session_state['auth_flow'] = Flow.from_client_config(
                 client_config,
                 scopes=SCOPES,
                 redirect_uri=redirect_uri
             )
-            
-        # Show login link if no code yet
-        if "code" not in query_params:
-            auth_url, _ = st.session_state['auth_flow'].authorization_url(prompt='consent')
-            st.markdown(f"### Please authenticate with Google")
-            st.markdown(f"**[Click here to sign in with Google]({auth_url})**")
-            return None
-        
-        return None
-
-    # If we have credentials, verify they're still valid
-    creds = st.session_state['creds']
-    if creds.expired and creds.refresh_token:
-        try:
-            creds.refresh(Request())
         except Exception as e:
-            st.error(f"Error refreshing credentials: {e}")
-            # Clear invalid credentials
-            del st.session_state['creds']
-            if 'auth_flow' in st.session_state:
-                del st.session_state['auth_flow']
-            st.rerun()
+            st.error(f"Error configuring Google OAuth: {e}")
+            st.error("Please check your GOOGLE_CLIENT_SECRETS in Streamlit secrets.")
             return None
-    
-    return gspread.authorize(creds)
+
+    # --- Step 3: Handle code from Google redirect ---
+    query_params = st.query_params
+    if "code" in query_params:
+        try:
+            code = query_params["code"]
+            st.session_state['auth_flow'].fetch_token(code=code)
+            st.session_state['creds'] = st.session_state['auth_flow'].credentials
+            st.query_params.clear()
+            st.success("✅ Authentication successful! Reloading...")
+            st.experimental_rerun()
+        except Exception as e:
+            st.error(f"Error exchanging code for token: {e}")
+            st.query_params.clear()
+            return None
+
+    # --- Step 4: Show login link if no code yet ---
+    auth_url, _ = st.session_state['auth_flow'].authorization_url(prompt='consent')
+    st.markdown("### Please authenticate with Google")
+    st.markdown(f"**[Click here to sign in with Google]({auth_url})**")
+    st.markdown("If you already signed in and see 403, try clicking the 'Reauthenticate' button below.")
+
+    # --- Optional reauth button ---
+    if st.button("🔄 Reauthenticate with Google"):
+        st.session_state['force_reauth'] = True
+        st.experimental_rerun()
+
+    return None
 
 # --- Main App ---
 def main():
