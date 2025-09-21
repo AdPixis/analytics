@@ -110,23 +110,63 @@ def excel_columns(start: str, end: str):
 
 def load_sheet(gc, url, tab, header=0, columns=None):
     try:
-        # First, try to open the sheet and list all available worksheets
-        spreadsheet = gc.open_by_url(url)
-        available_tabs = [ws.title for ws in spreadsheet.worksheets()]
+        st.write(f"🔗 Attempting to open sheet URL: {url}")
         
-        st.write(f"Available tabs in sheet: {available_tabs}")
-        
-        if tab not in available_tabs:
-            st.error(f"Tab '{tab}' not found. Available tabs: {available_tabs}")
+        # Try to open the spreadsheet first
+        try:
+            spreadsheet = gc.open_by_url(url)
+            st.write(f"✅ Successfully opened spreadsheet: {spreadsheet.title}")
+        except Exception as e:
+            st.error(f"❌ Failed to open spreadsheet: {e}")
+            st.error("This might be a permissions issue. Make sure:")
+            st.error("1. The sheet is shared with your Google account")
+            st.error("2. You have at least 'Viewer' access")
+            st.error("3. The URL is correct and accessible")
             return pd.DataFrame()
         
-        ws = spreadsheet.worksheet(tab)
-        df = get_as_dataframe(ws, evaluate_formulas=True, header=header)
+        # List all available worksheets
+        try:
+            available_tabs = [ws.title for ws in spreadsheet.worksheets()]
+            st.write(f"📋 Available tabs in sheet: {available_tabs}")
+        except Exception as e:
+            st.error(f"❌ Failed to list worksheets: {e}")
+            return pd.DataFrame()
         
-        st.write(f"Loaded data shape: {df.shape}")
-        st.write(f"First few rows preview:")
-        st.dataframe(df.head(3))
+        # Check if the requested tab exists
+        if tab not in available_tabs:
+            st.error(f"❌ Tab '{tab}' not found. Available tabs: {available_tabs}")
+            
+            # Suggest closest matches
+            suggestions = [t for t in available_tabs if tab.lower() in t.lower() or t.lower() in tab.lower()]
+            if suggestions:
+                st.info(f"💡 Did you mean one of these? {suggestions}")
+            
+            return pd.DataFrame()
         
+        # Try to access the specific worksheet
+        try:
+            ws = spreadsheet.worksheet(tab)
+            st.write(f"✅ Successfully accessed worksheet: {tab}")
+        except Exception as e:
+            st.error(f"❌ Failed to access worksheet '{tab}': {e}")
+            return pd.DataFrame()
+        
+        # Try to load the data
+        try:
+            df = get_as_dataframe(ws, evaluate_formulas=True, header=header)
+            st.write(f"✅ Successfully loaded data. Shape: {df.shape}")
+            
+            if not df.empty:
+                st.write(f"📊 First few rows preview:")
+                st.dataframe(df.head(3))
+            else:
+                st.warning("⚠️ The worksheet appears to be empty")
+                
+        except Exception as e:
+            st.error(f"❌ Failed to load data from worksheet: {e}")
+            return pd.DataFrame()
+        
+        # Clean and process the data
         df = df.dropna(how="all", axis=0).dropna(how="all", axis=1)
         
         if header == 0:
@@ -136,10 +176,13 @@ def load_sheet(gc, url, tab, header=0, columns=None):
             col_indices = [excel_col_to_index(c) for c in columns]
             df = df.iloc[:, col_indices]
         
+        st.write(f"✅ Data processing complete. Final shape: {df.shape}")
         return df
+        
     except Exception as e:
-        st.error(f"Error loading sheet {tab}: {e}")
+        st.error(f"❌ Unexpected error in load_sheet: {e}")
         st.error(f"Sheet URL: {url}")
+        st.error(f"Requested tab: {tab}")
         return pd.DataFrame()
 
 def extract_parts(text):
